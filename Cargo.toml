@@ -1,0 +1,24 @@
+[package]
+name = "mirra"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+rsa = "0.6"
+toml = "0.5"
+rand = "0.8"
+bytes = "1.1"
+libflate = "1"
+base64 = "0.13"
+num-traits = "0.2"
+num-derive = "0.2"
+dialoguer = "0.10"
+env_logger = "0.9"
+tokio-codec = "0.2.0-alpha"
+async-recursion = "1"
+async-trait = "0.1.53"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread" ] }
