@@ -2,20 +2,21 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::env;
+use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Result};
 use std::path::{Path, PathBuf};
 
 use async_recursion::async_recursion;
-use log::{debug, info, warn};
+use log::{info, warn};
 use tokio::fs::File;
 
 use crate::{Client, Config, Server};
-use crate::environment::Environment;
-use crate::packet::{Ok, ContinueSync, FileHeader, Handshake, Intent};
+use crate::environment::LocalKeys;
+use crate::packet::{Close, ContinueSync, FileHeader, Handshake, Ok, PacketKind};
 
-async fn sync_file(socket: &mut Client, path: &Path, _config: &Config, env: &Environment) -> Result<()> {
-    debug!("Syncing {}", path.to_str().unwrap_or("<couldnt read path>"));
+async fn sync_file(socket: &mut Client, path: &Path, keys: &LocalKeys) -> Result<()> {
+    info!("Syncing {}", path.to_str().unwrap_or("<couldnt read path>"));
 
     socket.send(ContinueSync::new(true)).await?;
 
@@ -25,9 +26,18 @@ async fn sync_file(socket: &mut Client, path: &Path, _config: &Config, env: &Env
     path.hash(&mut hasher);
     let hash = hasher.finish().to_string();
 
-    socket.send(FileHeader::new(path.to_str().unwrap().to_string(), hash.clone(), env.sign(hash))).await?;
+    socket.send(FileHeader::new(path.to_str().unwrap().to_string(), hash.clone(), keys.sign(hash))).await?;
 
-    socket.expect::<Ok>().await?;
+    let next = socket.read_packet_kind().await?;
+    match next {
+        PacketKind::Ok => {}
+        PacketKind::Skip => {
+            return Ok(());
+        }
+        _ => {
+            return Err(Error::new(ErrorKind::InvalidData, "unexpected package"));
+        }
+    }
 
     socket.send(File::open(path).await?).await?;
 
@@ -37,22 +47,22 @@ async fn sync_file(socket: &mut Client, path: &Path, _config: &Config, env: &Env
 }
 
 #[async_recursion]
-async fn sync_dir(socket: &mut Client, dir: PathBuf, config: &Config, env: &Environment) -> Result<()> {
-    if dir == env::current_dir()?.join(".mirra") {
-        debug!("Skipping {}", dir.to_str().unwrap_or("mirra directory"));
+async fn sync_dir(socket: &mut Client, dir: PathBuf, keys: &LocalKeys) -> Result<()> {
+    if dir.as_path().file_name().unwrap() == OsStr::new(".mirra") {
+        info!("Skipping {}", dir.to_str().unwrap_or("mirra directory"));
         return Ok(());
     }
 
-    debug!("Syncing directory {}", dir.to_str().unwrap_or("<couldnt read path>"));
+    info!("Syncing directory {}", dir.to_str().unwrap_or("<couldnt read path>"));
     let mut list = tokio::fs::read_dir(dir).await?;
     loop {
         let entry = list.next_entry().await?;
         if entry.is_none() { break; }
         if let Some(entry) = entry {
             if entry.path().is_file() {
-                sync_file(socket, entry.path().strip_prefix(env::current_dir()?).unwrap(), config, env).await?;
+                sync_file(socket, entry.path().strip_prefix(env::current_dir()?).unwrap(), keys).await?;
             } else if entry.path().is_dir() {
-                sync_dir(socket, entry.path(), config, env).await?;
+                sync_dir(socket, entry.path(), keys).await?;
             }
         }
     }
@@ -60,13 +70,13 @@ async fn sync_dir(socket: &mut Client, dir: PathBuf, config: &Config, env: &Envi
     Ok(())
 }
 
-async fn process_full_sync(mut socket: Client, config: &Config, env: &Environment) -> Result<()> {
-    debug!("Performing a full sync");
+async fn process_full_sync(socket: &mut Client, keys: &LocalKeys) -> Result<()> {
+    info!("Performing a sync");
     socket.send(Ok::new()).await?;
 
     let data_dir = env::current_dir()?;
 
-    sync_dir(&mut socket, data_dir, config, env).await?;
+    sync_dir(socket, data_dir, keys).await?;
 
     socket.send(ContinueSync::new(false)).await?;
 
@@ -75,47 +85,41 @@ async fn process_full_sync(mut socket: Client, config: &Config, env: &Environmen
     Ok(())
 }
 
-async fn process_partial_sync(mut socket: Client, _config: &Config, _env: &Environment) -> Result<()> {
-    socket.send(Ok::new()).await?;
-    Ok(())
-}
-
-
-async fn process_certificate_sync(mut socket: Client, _config: &Config, _env: &Environment) -> Result<()> {
-    socket.send(Ok::new()).await?;
-    Ok(())
-}
-
-async fn process_socket(mut socket: Client, config: &Config, env: &Environment) -> Result<()> {
+async fn process_socket(mut socket: Client, keys: &LocalKeys) -> Result<()> {
     let remote = socket.peer_addr();
-    debug!("Connected with {}", remote.ip());
+    info!("Connected with {}", remote.ip());
 
-    let handshake: Handshake = socket.expect().await?;
-
-    if remote.ip().to_string() != handshake.ip {
-        info!("Couldn't verify node IP address");
-        return Err(Error::from(ErrorKind::InvalidData));
-    }
+    socket.expect::<Handshake>().await?;
 
     socket.send(Ok::new()).await?;
 
-    debug!("Performed handshake");
+    info!("Performed handshake");
 
-    let intent: Intent = socket.expect().await?;
+    loop {
+        let next = socket.read_packet_kind().await?;
 
-    match intent {
-        Intent::FullSync => process_full_sync(socket, config, env).await,
-        Intent::PartialSync => process_partial_sync(socket, config, env).await,
-        Intent::CertificateSync => process_certificate_sync(socket, config, env).await,
+        match next {
+            PacketKind::Close => {
+                info!("Closing connection");
+                socket.send(Close::new()).await?;
+                return Ok(())
+            }
+            PacketKind::Sync => {
+                process_full_sync(&mut socket, keys).await?
+            }
+            _ => {
+                return Err(Error::from(ErrorKind::InvalidData));
+            }
+        }
     }
 }
 
-pub async fn root(config: Config, env: Environment) -> Result<()> {
+pub async fn root(config: Config, keys: LocalKeys) -> Result<()> {
     let mut server = Server::new(config.port).await?;
 
     loop {
         let socket = server.accept().await?;
-        let r = process_socket(socket, &config, &env).await;
+        let r = process_socket(socket, &keys).await;
         if r.is_err() {
             warn!("{}", r.err().unwrap().to_string());
         }

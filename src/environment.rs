@@ -28,19 +28,19 @@ pub struct NodeConfig {
     pub root_port: u16,
 }
 
-pub struct Environment {
+pub struct LocalKeys {
     pub private_key: rsa::RsaPrivateKey,
     pub public_key: rsa::RsaPublicKey,
 }
 
-impl Environment {
+impl LocalKeys {
     pub fn sign(&self, msg: String) -> String {
         base64::encode(self.private_key.sign(PaddingScheme::PKCS1v15Sign { hash: None }, msg.as_bytes()).unwrap())
     }
 }
 
 /// Generate private and public key and store them to disk
-fn setup_environment(at: &Path) -> Result<Environment> {
+fn setup_environment(at: &Path) -> Result<LocalKeys> {
     let mut rng = rand::thread_rng();
 
     let bits = 2048;
@@ -56,7 +56,7 @@ fn setup_environment(at: &Path) -> Result<Environment> {
     private_key_file.write_all(encoded_priv.as_bytes())?;
     public_key_file.write_all(encoded_pub.as_bytes())?;
 
-    Ok(Environment {
+    Ok(LocalKeys {
         private_key,
         public_key,
     })
@@ -104,7 +104,7 @@ fn load_public_key(from: &Path) -> Result<RsaPublicKey> {
 }
 
 /// Load both keys from disk, regenerate if they don't exist
-fn load_environment(from: &Path) -> Result<Environment> {
+fn load_environment(from: &Path) -> Result<LocalKeys> {
     let private_key = load_private_key(from);
 
     if private_key.is_err() {
@@ -127,14 +127,14 @@ fn load_environment(from: &Path) -> Result<Environment> {
         public_key_file.write_all(encoded_pub.as_bytes())?;
     }
 
-    Ok(Environment {
+    Ok(LocalKeys {
         private_key: private_key.unwrap(),
         public_key: public_key.unwrap(),
     })
 }
 
 /// Abstraction for loading/creating private/public keys
-pub fn get_environment() -> Result<Environment> {
+pub fn get_environment() -> Result<LocalKeys> {
     let mirra_folder = Path::new(".mirra");
     if !mirra_folder.exists() {
         create_dir(mirra_folder)?;

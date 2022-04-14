@@ -2,6 +2,7 @@
 
 use std::io::{Error, ErrorKind, Result};
 use std::net::SocketAddr;
+use num_traits::FromPrimitive;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -43,11 +44,27 @@ impl Client {
         })
     }
 
+    pub async fn read_packet_kind(&mut self) -> Result<PacketKind> {
+        let t = self.stream.read_u8().await?;
+        let res = FromPrimitive::from_u8(t);
+
+        if res.is_some() {
+            Ok(res.unwrap())
+        } else {
+            Err(Error::new(ErrorKind::InvalidData, "invalid packet kind"))
+        }
+    }
+
+    pub async fn unchecked_expect<T>(&mut self) -> Result<T>
+        where TcpStream: ReadAny<T> {
+        self.stream.read_any().await
+    }
+
     pub async fn expect<T: Packet>(&mut self) -> Result<T>
         where TcpStream: ReadAny<T> {
-        let id = self.stream.read_u8().await?;
-        if id == T::KIND as u8 {
-            self.stream.read_any().await
+        let id = self.read_packet_kind().await?;
+        if id == T::KIND {
+            Ok(self.unchecked_expect().await?)
         } else {
             Err(Error::new(ErrorKind::InvalidData, "unexpected package"))
         }

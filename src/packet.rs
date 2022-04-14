@@ -6,18 +6,20 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use log::warn;
 use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+#[derive(PartialEq, FromPrimitive)]
 pub enum PacketKind {
     Ok = 0x1,
-    Handshake = 0x2,
-    Intent = 0x3,
-    Continue = 0x4,
-    FileHeader = 0x5,
-    File = 0x6
+    Close = 0x2,
+    Handshake = 0x3,
+    Sync = 0x4,
+    Continue = 0x5,
+    FileHeader = 0x6,
+    File = 0x7,
+    Skip = 0x8
 }
 
 pub trait Packet {
@@ -32,17 +34,6 @@ pub trait WriteAny<T> {
 #[async_trait]
 pub trait ReadAny<T> {
     async fn read_any(&mut self) -> Result<T>;
-}
-
-#[derive(FromPrimitive)]
-pub enum Intent {
-    FullSync = 1,
-    PartialSync = 2,
-    CertificateSync = 3,
-}
-
-impl Packet for Intent {
-    const KIND: PacketKind = PacketKind::Intent;
 }
 
 impl Packet for File {
@@ -109,15 +100,9 @@ impl WriteAny<File> for TcpStream {
 }
 
 #[async_trait]
-impl WriteAny<Ok> for TcpStream { async fn write_any(&mut self, _t: Ok) -> Result<usize> { Ok(0) } }
-
-#[async_trait]
-impl ReadAny<Ok> for TcpStream { async fn read_any(&mut self) -> Result<Ok> { Ok(Ok {}) } }
-
-#[async_trait]
 impl WriteAny<Handshake> for TcpStream {
     async fn write_any(&mut self, t: Handshake) -> Result<usize> {
-        Ok(self.write_any(t.name).await? + self.write_any(t.ip).await?)
+        Ok(self.write_any(t.name).await?)
     }
 }
 
@@ -126,28 +111,7 @@ impl ReadAny<Handshake> for TcpStream {
     async fn read_any(&mut self) -> Result<Handshake> {
         Ok(Handshake {
             name: self.read_any().await?,
-            ip: self.read_any().await?,
         })
-    }
-}
-
-#[async_trait]
-impl WriteAny<Intent> for TcpStream {
-    async fn write_any(&mut self, t: Intent) -> Result<usize> {
-        self.write_u8(t as u8).await?;
-        Ok(1)
-    }
-}
-
-#[async_trait]
-impl ReadAny<Intent> for TcpStream {
-    async fn read_any(&mut self) -> Result<Intent> {
-        let t = self.read_u8().await?;
-        if (1..4).contains(&t) {
-            Ok(FromPrimitive::from_u8(t).unwrap())
-        } else {
-            Err(Error::from(ErrorKind::Other))
-        }
     }
 }
 
@@ -189,6 +153,11 @@ macro_rules! generic_packet {
         pub struct $name {}
         impl $name { pub fn new() -> Self { Self {} } }
         impl Packet for $name { const KIND: PacketKind = $id; }
+        #[async_trait]
+        impl WriteAny<$name> for TcpStream { async fn write_any(&mut self, _t: $name) -> Result<usize> { Ok(0) } }
+
+        #[async_trait]
+        impl ReadAny<$name> for TcpStream { async fn read_any(&mut self) -> Result<$name> { Ok($name {}) } }
     };
     ($name:ident, $id:expr, $($arg:ident, $typ:ty),*) => {
         pub struct $name {
@@ -216,6 +185,9 @@ macro_rules! generic_packet {
 }
 
 generic_packet!(Ok, PacketKind::Ok);
-generic_packet!(Handshake, PacketKind::Handshake, name, String, ip, String);
+generic_packet!(Close, PacketKind::Close);
+generic_packet!(Handshake, PacketKind::Handshake, name, String);
+generic_packet!(Sync, PacketKind::Sync);
 generic_packet!(ContinueSync, PacketKind::Continue, cont, bool);
 generic_packet!(FileHeader, PacketKind::FileHeader, path, String, hash, String, cert, String);
+generic_packet!(Skip, PacketKind::Skip);
