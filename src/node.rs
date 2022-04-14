@@ -2,16 +2,19 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::io::Result;
-use std::path::Path;
-use log::info;
+use std::io::{Error, ErrorKind, Result};
+use std::path::PathBuf;
+use std::sync::Arc;
+use log::{error, info};
 
+use tokio::fs;
 use tokio::fs::OpenOptions;
 
-use crate::{Client, Config, LocalKeys};
-use crate::packet::{ContinueSync, FileHeader, Sync, Ok, Close, Skip, Handshake};
+use crate::{Client, LocalKeys};
+use crate::config::{Config, RootSync};
+use crate::packet::{ContinueSync, FileHeader, Sync, Ok, Close, Skip, Handshake, IndexNode, IndexRoot};
 
-async fn receive_sync(client: &mut Client) -> Result<()> {
+async fn receive_sync(client: &mut Client, into: PathBuf) -> Result<()> {
     loop {
         let cont: ContinueSync = client.expect().await?;
         client.send(Ok::new()).await?;
@@ -19,7 +22,7 @@ async fn receive_sync(client: &mut Client) -> Result<()> {
 
         let header: FileHeader = client.expect().await?;
 
-        let file_path = Path::new(&header.path);
+        let file_path = into.join(&header.path);
         if file_path.exists() {
             let mut hasher = DefaultHasher::new();
             file_path.hash(&mut hasher);
@@ -33,6 +36,10 @@ async fn receive_sync(client: &mut Client) -> Result<()> {
         }
 
         client.send(Ok::new()).await?;
+
+        if file_path.parent().is_some() && !file_path.parent().unwrap().exists() {
+            fs::create_dir_all(file_path.parent().unwrap()).await?;
+        }
 
         let file = OpenOptions::new()
             .write(true)
@@ -53,22 +60,45 @@ async fn receive_sync(client: &mut Client) -> Result<()> {
     Ok(())
 }
 
-pub async fn node(config: Config, _env: LocalKeys) -> Result<()> {
-    let root_ip = config.node_config.as_ref().unwrap().root_addr.clone();
-    let root_port = config.node_config.as_ref().unwrap().root_port;
+pub async fn process_sync(name: String, module: String, sync: RootSync) -> Result<()> {
+    let mut client = Client::new(sync.ip.clone(), sync.port).await?;
+    info!("Connected to {}", sync.ip);
 
-    let mut client = Client::new(root_ip.clone(), root_port).await?;
-    info!("Connected to {}", root_ip);
-
-    client.send(Handshake::new(config.name)).await?;
+    client.send(Handshake::new(name.clone())).await?;
     client.expect::<Ok>().await?;
 
     info!("Performed handshake");
 
-    client.send(Sync::new()).await?;
-    client.expect::<Ok>().await?;
+    client.send(IndexNode::new()).await?;
+    let index: IndexRoot = client.expect().await?;
+
+    if !index.modules.contains(&module) {
+        error!("Remote server doesn't have '{}'", module);
+        client.send(Close::new()).await?;
+        client.expect::<Close>().await?;
+        return Err(Error::from(ErrorKind::InvalidInput));
+    }
+
+    client.send(Sync::new(module)).await?;
 
     info!("Syncing files");
 
-    receive_sync(&mut client).await
+    let dir = PathBuf::from(sync.path);
+    if !dir.exists() {
+        fs::create_dir_all(dir.clone()).await?;
+    }
+    receive_sync(&mut client, dir).await
+}
+
+pub async fn node(config: Arc<Config>, _env: Arc<LocalKeys>) -> Result<()> {
+    let mut futs = Vec::with_capacity(config.syncs.len());
+
+    for sync in &config.syncs {
+        futs.push(tokio::spawn(process_sync(config.name.clone(), sync.0.clone(), sync.1.clone())));
+    }
+    for fut in futs {
+        fut.await??;
+    }
+
+    Ok(())
 }

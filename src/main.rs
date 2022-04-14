@@ -2,16 +2,21 @@
 
 use std::env;
 use std::io::Result;
+use std::sync::Arc;
+use log::debug;
+use tokio::join;
+use crate::config::get_config;
 
-use crate::environment::{Config, LocalKeys, get_config, get_environment};
+use crate::keys::{LocalKeys, get_environment};
 use crate::socket::{Client, Server};
 
-mod environment;
+mod keys;
 mod socket;
 mod util;
 mod root;
 mod node;
 mod packet;
+mod config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,14 +26,17 @@ async fn main() -> Result<()> {
     }
     env_logger::init();
 
-    let config = get_config()?;
-    let env = get_environment()?;
+    let config = Arc::from(get_config().await?);
+    let env = Arc::from(get_environment()?);
 
-    if config.is_root {
-        root::root(config, env).await?;
-    } else {
-        node::node(config, env).await?;
-    }
+    debug!("{:?}", config);
+
+    let root_fut = tokio::spawn(root::root(config.clone(), env.clone()));
+    let node_fut = tokio::spawn(node::node(config.clone(), env.clone()));
+
+    let (root_res, node_res) = join!(root_fut, node_fut);
+    root_res??;
+    node_res??;
 
     return Ok(());
 }

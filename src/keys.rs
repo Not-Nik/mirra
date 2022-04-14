@@ -3,30 +3,12 @@
 use std::fs;
 use std::fs::{create_dir, File};
 use std::io::{Error, ErrorKind, Read, Result, Write};
-use std::net::IpAddr;
 use std::path::Path;
 
 use log::error;
 use rsa::{PaddingScheme, RsaPrivateKey, RsaPublicKey};
 use rsa::pkcs1::LineEnding;
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey};
-use serde::{Deserialize, Serialize};
-
-use crate::util::{simple_input, simple_input_default};
-
-#[derive(Serialize, Deserialize)]
-pub struct Config {
-    pub name: String,
-    pub port: u16,
-    pub is_root: bool,
-    pub node_config: Option<NodeConfig>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct NodeConfig {
-    pub root_addr: String,
-    pub root_port: u16,
-}
 
 pub struct LocalKeys {
     pub private_key: rsa::RsaPrivateKey,
@@ -140,57 +122,4 @@ pub fn get_environment() -> Result<LocalKeys> {
         create_dir(mirra_folder)?;
     }
     load_environment(mirra_folder)
-}
-
-/// Create configuration file
-fn setup_config(from: &Path) -> Result<Config> {
-    let name: String = simple_input("mirra name?")?;
-    let port: u16 = simple_input_default("mirra port?", 6007)?;
-    let is_root: bool = simple_input_default("is this a root mirra?", false)?;
-
-    let mut config = Config {
-        name,
-        port,
-        is_root,
-        node_config: None,
-    };
-
-    if !is_root {
-        let root_addr: IpAddr = simple_input("root mirra's ip?")?;
-        let root_port: u16 = simple_input_default("root mirra's port?", 6007)?;
-
-        config.node_config = Some(NodeConfig {
-            root_addr: root_addr.to_string(),
-            root_port,
-        });
-    }
-
-    let mut config_file = File::create(from.join("Mirra.toml"))?;
-    config_file.write_all(toml::to_string(&config).unwrap().as_bytes())?;
-
-    return Ok(config);
-}
-
-/// Load configuration file
-fn load_config(from: &Path) -> Result<Config> {
-    let config_file_path = from.join("Mirra.toml");
-    if !config_file_path.exists() {
-        return setup_config(from);
-    }
-
-    let mut config_file = File::open(config_file_path)?;
-    let mut config_raw = String::with_capacity(512);
-    config_file.read_to_string(&mut config_raw)?;
-
-    let config: Config = toml::from_str(config_raw.as_str())?;
-    Ok(config)
-}
-
-/// Abstraction for loading/creating the configuration file
-pub fn get_config() -> Result<Config> {
-    let mirra_folder = Path::new(".mirra");
-    if !mirra_folder.exists() {
-        create_dir(mirra_folder)?;
-    }
-    load_config(mirra_folder)
 }

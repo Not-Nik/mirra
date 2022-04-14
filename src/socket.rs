@@ -2,6 +2,7 @@
 
 use std::io::{Error, ErrorKind, Result};
 use std::net::SocketAddr;
+use log::warn;
 use num_traits::FromPrimitive;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -55,7 +56,7 @@ impl Client {
         }
     }
 
-    pub async fn unchecked_expect<T>(&mut self) -> Result<T>
+    pub async fn expect_unchecked<T>(&mut self) -> Result<T>
         where TcpStream: ReadAny<T> {
         self.stream.read_any().await
     }
@@ -64,7 +65,7 @@ impl Client {
         where TcpStream: ReadAny<T> {
         let id = self.read_packet_kind().await?;
         if id == T::KIND {
-            Ok(self.unchecked_expect().await?)
+            Ok(self.expect_unchecked().await?)
         } else {
             Err(Error::new(ErrorKind::InvalidData, "unexpected package"))
         }
@@ -99,6 +100,36 @@ impl Client {
         where TcpStream: WriteAny<T> {
         self.stream.write_u8(T::KIND as u8).await?;
         Ok(self.stream.write_any(data).await? + 1)
+    }
+
+    pub async fn send_file(&mut self, mut file: File) -> Result<usize> {
+        self.stream.write_u8(PacketKind::File as u8).await?;
+
+        let expected = file.metadata().await?.len();
+        self.stream.write_u64(expected).await?;
+        let mut read = 0;
+        let mut written = 0;
+
+        let mut buf = vec![0; 0x1000];
+        loop {
+            let s = file.read(buf.as_mut_slice()).await?;
+
+            if s == 0 {
+                break;
+            }
+            read += s;
+
+            written += self.stream.write(&buf.as_slice()[0..s]).await?;
+        }
+
+        if read != written {
+            warn!("Read {} bytes from disk, but sent only {} via network", read, written)
+        }
+        if written != expected as usize {
+            warn!("Announced to send {} bytes, but sent {}", written, expected);
+        }
+
+        Ok(written)
     }
 
     /// Returns the local address that this stream is bound to.
