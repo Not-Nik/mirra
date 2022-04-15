@@ -2,6 +2,7 @@
 
 use std::io::{Error, ErrorKind, Result};
 use std::net::SocketAddr;
+use fs4::tokio::AsyncFileExt;
 use log::warn;
 use num_traits::FromPrimitive;
 use tokio::fs::File;
@@ -103,31 +104,23 @@ impl Client {
     }
 
     pub async fn send_file(&mut self, mut file: File) -> Result<usize> {
+        file.lock_exclusive()?;
+
         self.stream.write_u8(PacketKind::File as u8).await?;
 
         let expected = file.metadata().await?.len();
         self.stream.write_u64(expected).await?;
-        let mut read = 0;
         let mut written = 0;
 
         let mut buf = vec![0; 0x1000];
         loop {
-            let s = file.read(buf.as_mut_slice()).await?;
-
-            if s == 0 {
+            if file.read(buf.as_mut_slice()).await? == 0 {
                 break;
             }
-            read += s;
 
             written += self.stream.write(&buf.as_slice()[0..s]).await?;
         }
-
-        if read != written {
-            warn!("Read {} bytes from disk, but sent only {} via network", read, written)
-        }
-        if written != expected as usize {
-            warn!("Announced to send {} bytes, but sent {}", written, expected);
-        }
+        file.unlock()?;
 
         Ok(written)
     }

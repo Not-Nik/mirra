@@ -17,4 +17,5 @@ dialoguer = "0.10"
 env_logger = "0.9"
 async-recursion = "1"
 async-trait = "0.1.53"
+fs4 = { version = "0.5", features = ["tokio-async"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread" ] }

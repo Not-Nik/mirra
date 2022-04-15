@@ -187,6 +187,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs4"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cef5c93884e5cef757f63446122c2f420713c3e03f85540d09485b9415983b4a"
+dependencies = [
+ "async-trait",
+ "libc",
+ "tokio",
+ "winapi",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -299,6 +311,7 @@ dependencies = [
  "base64",
  "dialoguer",
  "env_logger",
+ "fs4",
  "log",
  "num-derive",
  "num-traits",
