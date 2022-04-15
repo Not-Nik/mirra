@@ -1,11 +1,9 @@
 // mirra (c) Nikolas Wipper 2022
 
 use std::io::{Error, ErrorKind, Result};
-use std::path::PathBuf;
 
 use async_trait::async_trait;
 use num_derive::FromPrimitive;
-use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -25,26 +23,23 @@ pub enum PacketKind {
     Skip = 0xC,
 }
 
+/// Convenience trait for passing [PacketKinds]'s
 pub trait Packet {
     const KIND: PacketKind;
 }
 
+/// Convenience trait for writing to TcpStream
 #[async_trait]
 pub trait WriteAny<T> {
+    /// Write [t] to the stream
     async fn write_any(&mut self, t: T) -> Result<usize>;
 }
 
+/// Convenience trait for reading from TcpStream
 #[async_trait]
 pub trait ReadAny<T> {
+    /// Read a [T] from the stream
     async fn read_any(&mut self) -> Result<T>;
-}
-
-impl Packet for File {
-    const KIND: PacketKind = PacketKind::File;
-}
-
-impl Packet for PathBuf {
-    const KIND: PacketKind = PacketKind::File;
 }
 
 #[async_trait]
@@ -65,6 +60,7 @@ impl ReadAny<bool> for TcpStream {
 #[async_trait]
 impl WriteAny<String> for TcpStream {
     async fn write_any(&mut self, t: String) -> Result<usize> {
+        // Encoding is 4 bytes of size, then the entire string as utf8
         self.write_u32(t.len() as u32).await?;
         self.write(t.as_bytes()).await
     }
@@ -88,6 +84,7 @@ impl ReadAny<String> for TcpStream {
 #[async_trait]
 impl WriteAny<Vec<String>> for TcpStream {
     async fn write_any(&mut self, t: Vec<String>) -> Result<usize> {
+        // Again, 4 bytes of len, then every element
         self.write_u32(t.len() as u32).await?;
         let mut written = 4;
         for el in t {

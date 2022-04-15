@@ -3,11 +3,10 @@
 use std::env;
 use std::io::Result;
 use std::sync::Arc;
-use log::debug;
 use tokio::join;
 
 use crate::config::get_config;
-use crate::keys::{LocalKeys, get_environment};
+use crate::keys::{LocalKeys, get_keys};
 use crate::socket::{Client, Server};
 
 mod keys;
@@ -26,17 +25,22 @@ async fn main() -> Result<()> {
     }
     env_logger::init();
 
+    // Load config and keys from disk
+    // Atomically refcounted, so we can use them with [tokio::spawn], which might
+    // move tasks between threads with feature "rt-multi-thread" enabled
     let config = Arc::from(get_config().await?);
-    let env = Arc::from(get_environment()?);
+    let env = Arc::from(get_keys()?);
 
-    debug!("{:?}", config);
-
+    // Start root and node servers
+    // See [root::root]'s and [node::node]'s descriptions for more info
     let root_fut = tokio::spawn(root::root(config.clone(), env.clone()));
-    let node_fut = tokio::spawn(node::node(config.clone(), env.clone()));
+    let node_fut = node::node(config.clone(), env.clone());
 
+    // Run them in parallel until both finish
+    // todo: this will only print errors at the end of execution
     let (root_res, node_res) = join!(root_fut, node_fut);
     root_res??;
-    node_res??;
+    node_res?;
 
     return Ok(());
 }

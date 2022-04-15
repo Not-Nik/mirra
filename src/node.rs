@@ -14,14 +14,19 @@ use crate::config::{Config, RootSync};
 use crate::packet::{FileHeader, Ok, Skip, Handshake, PacketKind, Remove, Rename};
 use crate::util::{AsyncFileLock, hash_file, stringify};
 
+/// Receive a file from a remote mirra
 async fn receive_file(client: &mut Client, header: FileHeader, into: PathBuf) -> Result<()> {
+    // Create absolute file path from received header path and local destination directory
     let file_path = into.join(&header.path);
+    // Check if the file is already on dist
     if file_path.exists() {
+        // Open and lock file for hashing
         let mut file = File::open(file_path.clone()).await?;
         file.lock().await?;
         let hash = hash_file(&mut file).await?;
         file.unlock().await?;
 
+        // File is already on disk
         if hash == header.hash {
             info!("Skipping {}, already on disk", header.path);
             client.send(Skip::new()).await?;
@@ -29,12 +34,15 @@ async fn receive_file(client: &mut Client, header: FileHeader, into: PathBuf) ->
         }
     }
 
+    // config
     client.send(Ok::new()).await?;
 
+    // If the file is in a directory that previously didnt exist, create that
     if file_path.parent().is_some() && !file_path.parent().unwrap().exists() {
         fs::create_dir_all(file_path.parent().unwrap()).await?;
     }
 
+    // Create/overwrite file
     let file = OpenOptions::new()
         .write(true)
         .read(false)
@@ -49,31 +57,39 @@ async fn receive_file(client: &mut Client, header: FileHeader, into: PathBuf) ->
     Ok(())
 }
 
+/// Sync the entire remote module
 async fn receive_sync(client: &mut Client, into: PathBuf) -> Result<()> {
     loop {
         let next = client.read_packet_kind().await?;
+        // Remote mirra has gone through all files
         if next == PacketKind::EndSync {
+            // Acknowledge and return
             client.send(Ok::new()).await?;
             break;
+        // Only [PacketKind::EndSync] and [PacketKind::FileHeader] are valid
         } else if next != PacketKind::FileHeader {
             return Err(Error::from(ErrorKind::InvalidData));
         }
 
+        // Receive another file from the remote mirra
         let header: FileHeader = client.expect_unchecked().await?;
-
         receive_file(client, header, into.clone()).await?;
     }
 
     Ok(())
 }
 
-pub async fn process_sync(module: String, sync: RootSync) -> Result<()> {
+/// The main node lifecycle
+pub async fn process_node(module: String, sync: RootSync) -> Result<()> {
+    // Connect to remote mirra
     let mut client = Client::new(sync.ip.clone(), sync.port).await?;
     info!("Connected to {}", sync.ip);
 
+    // Send handshake
     client.send(Handshake::new(module.clone())).await?;
 
     let status = client.read_packet_kind().await?;
+    // Close if remote mirra doesn't have the requested module
     if status == PacketKind::NotFound {
         info!("{} not found on remote mirra", module);
         client.close().await?;
@@ -84,6 +100,7 @@ pub async fn process_sync(module: String, sync: RootSync) -> Result<()> {
 
     info!("Performed handshake");
 
+    // Create target directory if it doesn't exist
     let dir = PathBuf::from(sync.path);
     if !dir.exists() {
         fs::create_dir_all(dir.clone()).await?;
@@ -93,20 +110,24 @@ pub async fn process_sync(module: String, sync: RootSync) -> Result<()> {
         let next = client.read_packet_kind().await?;
 
         match next {
+            // Just a heartbeat, acknowledge and continue
             PacketKind::Heartbeat => {
                 client.send(Ok::new()).await?;
                 debug!("Heartbeat");
             }
+            // Sync the entire module
             PacketKind::BeginSync => {
                 client.send(Ok::new()).await?;
                 info!("Performing a full sync");
                 receive_sync(&mut client, dir.clone()).await?;
             }
+            // Sync a single file
             PacketKind::FileHeader => {
                 info!("Single file sync");
                 let header = client.expect_unchecked().await?;
                 receive_file(&mut client, header, dir.clone()).await?;
             }
+            // Remove a file
             PacketKind::Remove => {
                 let remove: Remove = client.expect_unchecked().await?;
                 client.send(Ok::new()).await?;
@@ -114,10 +135,12 @@ pub async fn process_sync(module: String, sync: RootSync) -> Result<()> {
                 info!("Removing {}", remove.path.clone());
 
                 let path = dir.join(remove.path);
+                // Ignore files that are already deleted, and directories
                 if path.exists() && path.is_file() && fs::remove_file(path.clone()).await.is_err() {
                     warn!("Failed to delete {} due to lack of permissions", stringify(&path)?);
                 }
             }
+            // Rename a file
             PacketKind::Rename => {
                 let rename: Rename = client.expect_unchecked().await?;
                 client.send(Ok::new()).await?;
@@ -138,11 +161,12 @@ pub async fn process_sync(module: String, sync: RootSync) -> Result<()> {
     }
 }
 
+/// Create a node process for every module that needs to synced from a remote mirra
 pub async fn node(config: Arc<Config>, _env: Arc<LocalKeys>) -> Result<()> {
     let mut futs = Vec::with_capacity(config.syncs.len());
 
     for sync in &config.syncs {
-        futs.push(tokio::spawn(process_sync(sync.0.clone(), sync.1.clone())));
+        futs.push(tokio::spawn(process_node(sync.0.clone(), sync.1.clone())));
     }
     for fut in futs {
         fut.await??;

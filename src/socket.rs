@@ -33,6 +33,7 @@ impl Server {
     }
 }
 
+/// Thin layer above [tokio::net::TcpStream]
 pub struct Client {
     pub(crate) stream: TcpStream,
 }
@@ -45,6 +46,7 @@ impl Client {
         })
     }
 
+    /// Only read a packets id
     pub async fn read_packet_kind(&mut self) -> Result<PacketKind> {
         let t = self.stream.read_u8().await?;
         let res = FromPrimitive::from_u8(t);
@@ -56,11 +58,13 @@ impl Client {
         }
     }
 
+    /// Read a packet without reading its kind
     pub async fn expect_unchecked<T>(&mut self) -> Result<T>
         where TcpStream: ReadAny<T> {
         self.stream.read_any().await
     }
 
+    /// Read a packet
     pub async fn expect<T: Packet>(&mut self) -> Result<T>
         where TcpStream: ReadAny<T> {
         let id = self.read_packet_kind().await?;
@@ -71,47 +75,62 @@ impl Client {
         }
     }
 
+    /// Read a file, as if a file was a packet with kind [PacketKind::File], and write to [file]
     pub async fn expect_file(&mut self, mut file: File) -> Result<usize> {
         let id = self.stream.read_u8().await?;
         if id != PacketKind::File as u8 {
             return Err(Error::new(ErrorKind::InvalidData, "unexpected package"));
         }
 
+        // Get the size of the file
         let mut size = self.stream.read_u64().await?;
 
+        // Assuming a good size of 0x1000, because that's likely to be one page in memory
         let mut buf = vec![0; 0x1000];
 
         loop {
+            // Read 0x1000 at max
             let to_read = size.min(0x1000) as usize;
 
-            buf.resize(to_read, 0);
+            buf.truncate(to_read);
+            // Read from remote host
             let read = self.stream.read(buf.as_mut_slice()).await?;
             if read == 0 {
                 break;
             }
             size -= read as u64;
+            // Write to file
             file.write(&buf.as_slice()[0..to_read]).await?;
         }
 
         Ok(size as usize)
     }
 
+    /// Write a packet
     pub async fn send<T: Packet>(&mut self, data: T) -> Result<usize>
         where TcpStream: WriteAny<T> {
         self.stream.write_u8(T::KIND as u8).await?;
         Ok(self.stream.write_any(data).await? + 1)
     }
 
+    /// Write a file, as if a file was a packet with kind [PacketKind::File]
+    /// This assumes [file] to be locked, or not to be changed during sending
     pub async fn send_file(&mut self, file: &mut File) -> Result<usize> {
+        // Write the packet kind
         self.stream.write_u8(PacketKind::File as u8).await?;
 
         let expected = file.metadata().await?.len();
+        // Write the size
         self.stream.write_u64(expected).await?;
+
+        // Safety counters
         let mut read = 0;
         let mut written = 0;
 
+        // Again, 0x1000 is likely the size of a page
         let mut buf = vec![0; 0x1000];
         loop {
+            // Read from file
             let s = file.read(buf.as_mut_slice()).await?;
 
             if s == 0 {
@@ -119,6 +138,7 @@ impl Client {
             }
             read += s;
 
+            // Write to remote host
             written += self.stream.write(&buf.as_slice()[0..s]).await?;
         }
         if read != written {
