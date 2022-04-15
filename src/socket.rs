@@ -2,7 +2,6 @@
 
 use std::io::{Error, ErrorKind, Result};
 use std::net::SocketAddr;
-use fs4::tokio::AsyncFileExt;
 use log::warn;
 use num_traits::FromPrimitive;
 use tokio::fs::File;
@@ -10,7 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::packet::{Packet, PacketKind, ReadAny, WriteAny};
+use crate::packet::{Close, Packet, PacketKind, ReadAny, WriteAny};
 
 /// Thin layer above [tokio::net::TcpListener]
 pub struct Server {
@@ -103,35 +102,44 @@ impl Client {
         Ok(self.stream.write_any(data).await? + 1)
     }
 
-    pub async fn send_file(&mut self, mut file: File) -> Result<usize> {
-        file.lock_exclusive()?;
-
+    pub async fn send_file(&mut self, file: &mut File) -> Result<usize> {
         self.stream.write_u8(PacketKind::File as u8).await?;
 
         let expected = file.metadata().await?.len();
         self.stream.write_u64(expected).await?;
+        let mut read = 0;
         let mut written = 0;
 
         let mut buf = vec![0; 0x1000];
         loop {
-            if file.read(buf.as_mut_slice()).await? == 0 {
+            let s = file.read(buf.as_mut_slice()).await?;
+
+            if s == 0 {
                 break;
             }
+            read += s;
 
             written += self.stream.write(&buf.as_slice()[0..s]).await?;
         }
-        file.unlock()?;
+        if read != written {
+            warn!("Read {} bytes from disk, but sent only {} via network", read, written)
+        }
+        if written != expected as usize {
+            warn!("Announced to send {} bytes, but sent {}", expected, written);
+        }
 
         Ok(written)
+    }
+
+    /// Close the connection (from the nodes perspective)
+    pub async fn close(&mut self) -> Result<()> {
+        self.send(Close::new()).await?;
+        self.expect::<Close>().await?;
+        Ok(())
     }
 
     /// Returns the local address that this stream is bound to.
     pub fn peer_addr(&self) -> SocketAddr {
         self.stream.peer_addr().unwrap()
-    }
-
-    /// Returns the local address that this stream is bound to.
-    pub fn local_addr(&self) -> SocketAddr {
-        self.stream.local_addr().unwrap()
     }
 }

@@ -5,8 +5,8 @@ use std::io::Result;
 use std::sync::Arc;
 use log::debug;
 use tokio::join;
-use crate::config::get_config;
 
+use crate::config::get_config;
 use crate::keys::{LocalKeys, get_environment};
 use crate::socket::{Client, Server};
 

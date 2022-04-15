@@ -14,12 +14,15 @@ pub enum PacketKind {
     Ok = 0x1,
     Close = 0x2,
     Handshake = 0x3,
-    Index = 0x4,
-    Sync = 0x5,
-    Continue = 0x6,
-    FileHeader = 0x7,
-    File = 0x8,
-    Skip = 0x9,
+    NotFound = 0x4,
+    Heartbeat = 0x5,
+    BeginSync = 0x6,
+    EndSync = 0x7,
+    FileHeader = 0x8,
+    File = 0x9,
+    Remove = 0xA,
+    Rename = 0xB,
+    Skip = 0xC,
 }
 
 pub trait Packet {
@@ -166,10 +169,12 @@ macro_rules! generic_packet {
 
 generic_packet!(Ok, PacketKind::Ok);
 generic_packet!(Close, PacketKind::Close);
-generic_packet!(Handshake, PacketKind::Handshake, name, String);
-generic_packet!(IndexNode, PacketKind::Index);
-generic_packet!(IndexRoot, PacketKind::Index, modules, Vec<String>);
-generic_packet!(Sync, PacketKind::Sync, module, String);
-generic_packet!(ContinueSync, PacketKind::Continue, cont, bool);
+generic_packet!(Handshake, PacketKind::Handshake, module, String);
+generic_packet!(NotFound, PacketKind::NotFound);
+generic_packet!(Heartbeat, PacketKind::Heartbeat);
+generic_packet!(BeginSync, PacketKind::BeginSync);
+generic_packet!(EndSync, PacketKind::EndSync);
 generic_packet!(FileHeader, PacketKind::FileHeader, path, String, hash, String, cert, String);
+generic_packet!(Remove, PacketKind::Remove, path, String);
+generic_packet!(Rename, PacketKind::Rename, old, String, new, String);
 generic_packet!(Skip, PacketKind::Skip);
