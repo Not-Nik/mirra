@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use toml::Value;
 use toml::value::Table;
 
 use crate::util::{simple_input, simple_input_default};
@@ -182,4 +183,29 @@ pub async fn get_config() -> Result<Config> {
     } else {
         load_config(mirra_file).await
     }
+}
+
+pub async fn safe_config(into: PathBuf, config: Config) -> Result<()> {
+    let mut toml_data = toml::map::Map::new();
+    toml_data.insert("name".to_string(), config.name.clone().into());
+    toml_data.insert("port".to_string(), toml::Value::Integer(config.port as i64));
+
+    for share in config.shares {
+        toml_data.insert(share.0, Value::Table(Table::from_iter([
+            ("path".to_string(), Value::String(share.1.path))
+        ].into_iter())));
+    }
+
+    for sync in config.syncs {
+        toml_data.insert(sync.0, Value::Table(Table::from_iter([
+            ("ip".to_string(), Value::String(sync.1.ip)),
+            ("port".to_string(), Value::Integer(sync.1.port as i64)),
+            ("path".to_string(), Value::String(sync.1.path))
+        ].into_iter())));
+    }
+
+    let mut config_file = File::create(into.join(".mirra/Mirra.toml")).await?;
+    config_file.write_all(toml::to_string(&toml_data).unwrap().as_bytes()).await?;
+
+    Ok(())
 }

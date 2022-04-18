@@ -23,7 +23,7 @@ use crate::LocalKeys;
 const STYLE: &str = include_str!("web/style.css");
 const LAYOUT: &str = include_str!("web/index.html");
 
-fn make_description(name: &String, module: Option<String>) -> String {
+fn make_description(name: &String, module: &Option<String>) -> String {
     if let Some(module) = module {
         format!("Share {}'s {} module via <a href=\"https://github.com/Not-Nik/mirra\">mirra</a>.", name, module)
     } else {
@@ -31,7 +31,7 @@ fn make_description(name: &String, module: Option<String>) -> String {
     }
 }
 
-fn make_list_page(entries: Vec<(String, String, bool)>, module: Option<String>, config: Arc<Config>) -> Result<String> {
+fn make_list_page(entries: Vec<(String, String, bool)>, module: Option<String>, host: Option<String>, config: Arc<Config>) -> Result<String> {
     let repeat_begin = LAYOUT.find("$(");
     let repeat_end = LAYOUT.find(")*");
 
@@ -47,9 +47,15 @@ fn make_list_page(entries: Vec<(String, String, bool)>, module: Option<String>, 
 
     let mut stripped_layout = LAYOUT.to_string();
     stripped_layout.replace_range(rb..re + 2, "");
-    stripped_layout = stripped_layout.replace("$title", "mirra");
-    stripped_layout = stripped_layout.replace("$name", &config.name);
-    stripped_layout = stripped_layout.replace("$desc", &make_description(&config.name, module));
+
+    let s;
+    stripped_layout = stripped_layout.replace("$title", "mirra")
+        .replace("$name", &config.name)
+        .replace("$desc", &make_description(&config.name, &module))
+        .replace("$setup", if host.is_some() && module.is_some() {
+            s = format!("mirra sync {} {}", host.as_ref().unwrap(), module.as_ref().unwrap());
+            s.as_str()
+        } else { "" });
 
     let repeat = LAYOUT.chars().skip(rb + 2).take(re - rb - 2).collect::<String>();
 
@@ -64,6 +70,7 @@ fn make_list_page(entries: Vec<(String, String, bool)>, module: Option<String>, 
 
     Ok(stripped_layout)
 }
+
 fn format_size(size: u64) -> String {
     if size < 1024 {
         size.to_string() + "B"
@@ -80,7 +87,7 @@ fn format_size(size: u64) -> String {
     }
 }
 
-async fn list_directory(path: PathBuf, module: String, config: Arc<Config>) -> Result<String> {
+async fn list_directory(path: PathBuf, module: String, host: Option<String>, config: Arc<Config>) -> Result<String> {
     let mut list = tokio::fs::read_dir(path).await?;
     let mut entries = Vec::new();
     loop {
@@ -103,13 +110,30 @@ async fn list_directory(path: PathBuf, module: String, config: Arc<Config>) -> R
             }
         }
     }
-    make_list_page(entries, Some(module), config)
+    make_list_page(entries, Some(module), host, config)
 }
 
 async fn handle(req: Request<Body>, config: Arc<Config>) -> Result<Response<Body>> {
     if req.method() != &Method::GET {
         return Ok(Response::builder().status(StatusCode::METHOD_NOT_ALLOWED).body(Body::empty()).unwrap());
     }
+
+    let headers = req.headers();
+    let host_header = headers.get("Host");
+    let host = if let Some(host_header) = host_header {
+        let x = host_header.to_str();
+        if let Ok(x) = x {
+            if x.contains(":") {
+                Some(x.split(":").next().unwrap().to_string())
+            } else {
+                Some(x.to_string())
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let uri = req.uri();
     let path = uri.path();
@@ -125,7 +149,7 @@ async fn handle(req: Request<Body>, config: Arc<Config>) -> Result<Response<Body
             modules.push((sync.0.clone() + "/", format!("root is <a href=\"//{}\">remote</a>", sync.1.ip), false));
         }
 
-        Ok(Response::new(Body::from(make_list_page(modules, None, config)?)))
+        Ok(Response::new(Body::from(make_list_page(modules, None, host, config)?)))
     } else if path == "/style.css" {
         Ok(Response::new(STYLE.into()))
     } else {
@@ -164,7 +188,7 @@ async fn handle(req: Request<Body>, config: Arc<Config>) -> Result<Response<Body
                         .header("Location", path.to_string() + "/")
                         .body(Body::empty()).unwrap())
                 } else {
-                    Ok(Response::new(Body::from(list_directory(dir.unwrap(), module.unwrap(), config).await?)))
+                    Ok(Response::new(Body::from(list_directory(dir.unwrap(), module.unwrap(), host, config).await?)))
                 }
             } else {
                 let file = File::open(dir.unwrap()).await.unwrap();
@@ -185,7 +209,7 @@ pub async fn web(config: Arc<Config>, keys: Arc<LocalKeys>) -> Result<()> {
     let make_service = make_service_fn(move |_conn| {
         // yay moving a non-Copy object into two nested async closures
         let local_config = config.clone();
-        let local_keys = keys.clone();
+        //let local_keys = keys.clone();
         async move {
             Ok::<_, Infallible>(service_fn(move |req: Request<Body>| {
                 let ll_config = local_config.clone();
