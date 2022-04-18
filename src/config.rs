@@ -24,9 +24,9 @@ pub struct RootShare {
 }
 
 #[derive(Debug, Clone)]
-/// Registers a node that syncs from [ip]:[port] into [path]
+/// Registers a node that syncs from [address]:[port] into [path]
 pub struct RootSync {
-    pub ip: String,
+    pub address: String,
     pub port: u16,
     pub path: String,
 }
@@ -80,15 +80,15 @@ pub async fn setup_config(into: PathBuf) -> Result<Config> {
 
 /// Parse a TOML table from a Mirra.toml config file
 async fn parse_table(table: &Table, name: String) -> Result<Root> {
-    // Syncs need an ip and a port but not a path
-    if table.contains_key("ip") && table.contains_key("port") {
+    // Syncs need an address and a port but not a path
+    if table.contains_key("address") && table.contains_key("port") {
         // Get values
-        let ip = table.get("ip").unwrap();
+        let address = table.get("address").unwrap();
         let port = table.get("port").unwrap();
         let p = table.get("path");
 
         // Check value validity
-        if !ip.is_str() || !port.is_integer() || (p.is_some() && !p.unwrap().is_str()) {
+        if !address.is_str() || !port.is_integer() || (p.is_some() && !p.unwrap().is_str()) {
             Err(Error::new(ErrorKind::InvalidData, "Config file is corrupted"))
         } else {
             // Glorified custom unwrap_or
@@ -99,7 +99,7 @@ async fn parse_table(table: &Table, name: String) -> Result<Root> {
             };
             // Return sync object
             Ok(Root::Sync(RootSync {
-                ip: ip.as_str().unwrap().to_string(),
+                address: address.as_str().unwrap().to_string(),
                 port: port.as_integer().unwrap() as u16,
                 path,
             }))
@@ -198,7 +198,7 @@ pub async fn safe_config(into: PathBuf, config: Config) -> Result<()> {
 
     for sync in config.syncs {
         toml_data.insert(sync.0, Value::Table(Table::from_iter([
-            ("ip".to_string(), Value::String(sync.1.ip)),
+            ("address".to_string(), Value::String(sync.1.address)),
             ("port".to_string(), Value::Integer(sync.1.port as i64)),
             ("path".to_string(), Value::String(sync.1.path))
         ].into_iter())));

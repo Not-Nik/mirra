@@ -86,8 +86,8 @@ async fn receive_sync(client: &mut Client, into: PathBuf) -> Result<()> {
 /// The main node lifecycle
 pub async fn process_node(module: String, sync: RootSync) -> Result<()> {
     // Connect to remote mirra
-    let mut client = Client::new(sync.ip.clone(), sync.port).await?;
-    info!("Connected to {}", sync.ip);
+    let mut client = Client::new(sync.address.clone() + ":" + &sync.port.to_string()).await?;
+    info!("Connected to {}", sync.address);
 
     // Send handshake
     client.send(Handshake::new(module.clone())).await?;

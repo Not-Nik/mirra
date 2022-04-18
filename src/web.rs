@@ -146,7 +146,7 @@ async fn handle(req: Request<Body>, config: Arc<Config>) -> Result<Response<Body
         }
 
         for sync in &config.syncs {
-            modules.push((sync.0.clone() + "/", format!("root is <a href=\"//{}\">remote</a>", sync.1.ip), false));
+            modules.push((sync.0.clone() + "/", format!("root is <a href=\"//{}\">remote</a>", sync.1.address), false));
         }
 
         Ok(Response::new(Body::from(make_list_page(modules, None, host, config)?)))

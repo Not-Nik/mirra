@@ -7,10 +7,8 @@
 extern crate core;
 
 use std::env;
-use std::io::{Error, ErrorKind, Result};
-use std::net::SocketAddr;
+use std::io::Result;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use tokio::join;
@@ -20,7 +18,7 @@ use dialoguer::Confirm;
 use crate::config::{get_config, RootShare, RootSync, safe_config};
 use crate::keys::{LocalKeys, get_keys};
 use crate::socket::{Client, Server};
-use crate::util::stringify;
+use crate::util::{stringify, parse_address};
 
 mod keys;
 mod socket;
@@ -36,7 +34,7 @@ mod web;
 #[clap(about = "A mirror management software", version = "0.1.0")]
 struct Cli {
     #[clap(subcommand)]
-    commands: Subcommands
+    commands: Subcommands,
 }
 
 #[derive(Subcommand)]
@@ -72,20 +70,6 @@ struct Share {
     module_path: Option<PathBuf>,
 }
 
-fn parse_addr(addr: String) -> Result<SocketAddr> {
-    let app = if !addr.contains(":") {
-        ":6007"
-    } else {
-        ""
-    };
-    let addr = SocketAddr::from_str(&(addr + app));
-    if addr.is_ok() {
-        Ok(addr.unwrap())
-    } else {
-        Err(Error::new(ErrorKind::AddrNotAvailable, addr.err().unwrap().to_string()))
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // hack to enable logging by default
@@ -119,13 +103,13 @@ async fn main() -> Result<()> {
             root_res??;
             web_res??;
             node_res?;
-        },
+        }
         Subcommands::Sync(sync) => {
             if !raw_config.syncs.contains_key(&sync.module) ||
                 Confirm::new()
                     .with_prompt(format!("Already syncing a module named {}. Overwrite?", sync.module))
                     .interact()? {
-                let addr = parse_addr(sync.remote_addr)?;
+                let addr = parse_address(sync.remote_addr);
                 let path = if sync.output_path.is_some() {
                     stringify(sync.output_path.unwrap())?
                 } else {
@@ -133,13 +117,13 @@ async fn main() -> Result<()> {
                 };
 
                 raw_config.syncs.insert(sync.module.clone(), RootSync {
-                    ip: addr.ip().to_string(),
-                    port: addr.port(),
-                    path
+                    address: addr.address,
+                    port: addr.port,
+                    path,
                 });
                 safe_config(env::current_dir()?, raw_config).await?;
             }
-        },
+        }
         Subcommands::Share(share) => {
             if !raw_config.shares.contains_key(&share.name) ||
                 Confirm::new()
@@ -156,7 +140,7 @@ async fn main() -> Result<()> {
                 });
                 safe_config(env::current_dir()?, raw_config).await?;
             }
-        },
+        }
     }
 
     return Ok(());

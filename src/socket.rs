@@ -44,9 +44,9 @@ pub struct Client {
 
 impl Client {
     /// Connect to a server at ip:port
-    pub async fn new(ip: String, port: u16) -> Result<Self> {
+    pub async fn new(addr: String) -> Result<Self> {
         Ok(Client {
-            stream: TcpStream::connect(SocketAddr::new(ip.parse().unwrap(), port)).await?
+            stream: TcpStream::connect(addr).await?
         })
     }
 

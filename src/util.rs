@@ -103,3 +103,23 @@ impl AsyncFileLock for File {
         }
     }
 }
+
+pub struct MirraAddress {
+    pub address: String,
+    pub port: u16
+}
+
+pub fn parse_address(addr: String) -> MirraAddress {
+    if !addr.contains(":") {
+        MirraAddress {
+            address: addr,
+            port: 6007
+        }
+    } else {
+        let mut split = addr.split(":");
+        MirraAddress {
+            address: split.next().unwrap().to_string(),
+            port: split.next().unwrap().parse().unwrap()
+        }
+    }
+}

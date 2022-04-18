@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 rsa = "0.6"
-toml = "0.5"
 rand = "0.8"
 blake3 = "1"
 notify = "4"
@@ -22,5 +21,6 @@ async-recursion = "1"
 clap = { version = "3", features = ["derive"] }
 fs4 = { version = "0.5", features = ["tokio-async"] }
 tokio-util = { version = "0.7", features = ["codec"] }
+toml = {version = "0.5", features = ["preserve_order"]}
 hyper = { version = "0.14", features = ["runtime", "tcp", "http1", "server", "stream"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread"] }
