@@ -80,7 +80,7 @@ Mirra isn't fully usable yet. This is what's to come:
 - [x] Basic usage
 - [ ] Easier mirra setup
 - [ ] Get a remote mirras index via CLI
-- [ ] Web interface for downloading a mirras data
+- [x] Web interface for downloading a mirras data
 - [ ] Let a root mirra verify official nodes
 - [ ] Automatic redirects based on location
 

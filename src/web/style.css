@@ -1,0 +1,48 @@
+* {
+    font-family: monospace;
+}
+
+body {
+    background-color: beige;
+}
+
+.main-container {
+    margin-top: 2%;
+    margin-bottom: 2%;
+    margin-right: 2%;
+    margin-left: 2%;
+    outline: 2px solid burlywood;
+}
+
+.file {
+    display: grid;
+    grid-template-columns: auto max-content;
+    grid-template-areas: "file-name file-info";
+    align-items: end;
+    gap: 0.25rem;
+}
+
+.file-name {
+    grid-area: file-name;
+    position: relative;
+    overflow: hidden;
+}
+
+.file-name::after {
+    position: absolute;
+    padding-left: 0.25ch;
+    content: " . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
+    ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
+    ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ";
+    text-align: right;
+    opacity: .5;
+}
+
+.file-info {
+    grid-area: file-info;
+}
+
+footer {
+    font-size: 0.9rem;
+    opacity: 0.75;
+}

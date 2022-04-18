@@ -4,6 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+extern crate core;
+
 use std::env;
 use std::io::Result;
 use std::sync::Arc;
@@ -20,6 +22,7 @@ mod root;
 mod node;
 mod packet;
 mod config;
+mod web;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -38,12 +41,14 @@ async fn main() -> Result<()> {
     // Start root and node servers
     // See [root::root]'s and [node::node]'s descriptions for more info
     let root_fut = tokio::spawn(root::root(config.clone(), env.clone()));
+    let web_fut = tokio::spawn(web::web(config.clone(), env.clone()));
     let node_fut = node::node(config.clone(), env.clone());
 
     // Run them in parallel until both finish
     // todo: this will only print errors at the end of execution
-    let (root_res, node_res) = join!(root_fut, node_fut);
+    let (root_res, web_res, node_res) = join!(root_fut, web_fut, node_fut);
     root_res??;
+    web_res??;
     node_res?;
 
     return Ok(());

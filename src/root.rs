@@ -101,7 +101,7 @@ async fn process_full_sync(socket: &mut Client, dir: PathBuf, keys: Arc<LocalKey
 }
 
 /// Main lifecycle of a connection to a node
-async fn process_socket(mut socket: Client, config: Arc<Config>, keys: Arc<LocalKeys>) -> Result<()> {
+async fn process_socket(socket: &mut Client, config: Arc<Config>, keys: Arc<LocalKeys>) -> Result<()> {
     let remote = socket.peer_addr();
     info!("Connected with {}", remote.ip());
 
@@ -146,7 +146,7 @@ async fn process_socket(mut socket: Client, config: Arc<Config>, keys: Arc<Local
     }
 
     // Sync the entire module at first
-    process_full_sync(&mut socket, dir.clone(), keys.clone()).await?;
+    process_full_sync(socket, dir.clone(), keys.clone()).await?;
 
     // Watch the module for any changes to files
     let (tx, rx) = mpsc::channel();
@@ -194,7 +194,7 @@ async fn process_socket(mut socket: Client, config: Arc<Config>, keys: Arc<Local
             // Create and write are basically the same
             DebouncedEvent::Create(path) | DebouncedEvent::Write(path) => {
                 info!("Dispatching file update event: {}", stringify(&path)?);
-                sync_file(&mut socket, dir.clone(), path.as_path(), keys.clone()).await?;
+                sync_file(socket, dir.clone(), path.as_path(), keys.clone()).await?;
             }
             // Remove is rather trivial
             DebouncedEvent::Remove(path) => {
@@ -210,7 +210,7 @@ async fn process_socket(mut socket: Client, config: Arc<Config>, keys: Arc<Local
                 socket.expect::<Ok>().await?;
             }
             // Just resynchronise the entire thing to be share
-            DebouncedEvent::Rescan => process_full_sync(&mut socket, dir.clone(), keys.clone()).await?,
+            DebouncedEvent::Rescan => process_full_sync(socket, dir.clone(), keys.clone()).await?,
             _ => {}
         }
     }
@@ -222,14 +222,14 @@ pub async fn root(config: Arc<Config>, keys: Arc<LocalKeys>) -> Result<()> {
 
     loop {
         // Accept a new connection
-        let socket = server.accept().await?;
+        let mut socket = server.accept().await?;
 
         // Get a new reference to config and keys
         let local_keys = keys.clone();
         let local_config = config.clone();
         // Create a new task for the [process_socket] call
         tokio::spawn(async move {
-            let r = process_socket(socket, local_config, local_keys).await;
+            let r = process_socket(&mut socket, local_config, local_keys).await;
             if r.is_err() {
                 warn!("{}", r.err().unwrap().to_string());
             }
