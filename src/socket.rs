@@ -6,7 +6,7 @@
 
 use std::io::{Error, ErrorKind, Result};
 use std::net::SocketAddr;
-use log::warn;
+use indicatif::{ProgressBar, ProgressStyle};
 use num_traits::FromPrimitive;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -92,6 +92,10 @@ impl Client {
         // Assuming a good size of 0x1000, because that's likely to be one page in memory
         let mut buf = vec![0; 0x1000];
 
+        let bar = ProgressBar::new(size);
+        bar.set_style(ProgressStyle::default_bar()
+            .template("{wide_bar} {bytes_per_sec} {bytes}/{total_bytes}"));
+
         loop {
             // Read 0x1000 at max
             let to_read = size.min(0x1000) as usize;
@@ -102,10 +106,12 @@ impl Client {
             if read == 0 {
                 break;
             }
+            bar.inc(read as u64);
             size -= read as u64;
             // Write to file
-            file.write(&buf.as_slice()[0..to_read]).await?;
+            file.write_all(&buf.as_slice()[0..to_read]).await?;
         }
+        bar.finish_and_clear();
 
         Ok(size as usize)
     }
@@ -123,13 +129,9 @@ impl Client {
         // Write the packet kind
         self.stream.write_u8(PacketKind::File as u8).await?;
 
-        let expected = file.metadata().await?.len();
+        let size = file.metadata().await?.len();
         // Write the size
-        self.stream.write_u64(expected).await?;
-
-        // Safety counters
-        let mut read = 0;
-        let mut written = 0;
+        self.stream.write_u64(size).await?;
 
         // Again, 0x1000 is likely the size of a page
         let mut buf = vec![0; 0x1000];
@@ -140,19 +142,12 @@ impl Client {
             if s == 0 {
                 break;
             }
-            read += s;
 
             // Write to remote host
-            written += self.stream.write(&buf.as_slice()[0..s]).await?;
-        }
-        if read != written {
-            warn!("Read {} bytes from disk, but sent only {} via network", read, written)
-        }
-        if written != expected as usize {
-            warn!("Announced to send {} bytes, but sent {}", expected, written);
+            self.stream.write_all(&buf.as_slice()[0..s]).await?;
         }
 
-        Ok(written)
+        Ok(size as usize)
     }
 
     /// Close the connection (from the nodes perspective)

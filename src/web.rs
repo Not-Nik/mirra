@@ -19,6 +19,7 @@ use tokio::fs::File;
 
 use crate::config::Config;
 use crate::LocalKeys;
+use crate::util::format_size;
 
 const STYLE: &str = include_str!("web/style.css");
 const LAYOUT: &str = include_str!("web/index.html");
@@ -69,22 +70,6 @@ fn make_list_page(entries: Vec<(String, String, bool)>, module: Option<String>, 
     }
 
     Ok(stripped_layout)
-}
-
-fn format_size(size: u64) -> String {
-    if size < 1024 {
-        size.to_string() + "B"
-    } else if size < 1024 * 1024 {
-        format!("{:.2}KiB", size as f64 / 1024.0)
-    } else if size < 1024 * 1024 * 1024 {
-        format!("{:.2}MiB", size as f64 / 1024.0 / 1024.0)
-    } else if size < 1024 * 1024 * 1024 * 1024 {
-        format!("{:.2}GiB", size as f64 / 1024.0 / 1024.0 / 1024.0)
-    } else if size < 1024 * 1024 * 1024 * 1024 * 1024 {
-        format!("{:.2}TiP", size as f64 / 1024.0 / 1024.0 / 1024.0 / 1024.0)
-    } else {
-        format!("{:.2}PiB", size as f64 / 1024.0 / 1024.0 / 1024.0 / 1024.0 / 1024.0)
-    }
 }
 
 async fn list_directory(path: PathBuf, module: String, host: Option<String>, config: Arc<Config>) -> Result<String> {

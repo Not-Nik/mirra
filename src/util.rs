@@ -104,6 +104,22 @@ impl AsyncFileLock for File {
     }
 }
 
+pub fn format_size(size: u64) -> String {
+    if size < 1024 {
+        size.to_string() + "B"
+    } else if size < 1024 * 1024 {
+        format!("{:.2}KiB", size as f64 / 1024.0)
+    } else if size < 1024 * 1024 * 1024 {
+        format!("{:.2}MiB", size as f64 / 1024.0 / 1024.0)
+    } else if size < 1024 * 1024 * 1024 * 1024 {
+        format!("{:.2}GiB", size as f64 / 1024.0 / 1024.0 / 1024.0)
+    } else if size < 1024 * 1024 * 1024 * 1024 * 1024 {
+        format!("{:.2}TiP", size as f64 / 1024.0 / 1024.0 / 1024.0 / 1024.0)
+    } else {
+        format!("{:.2}PiB", size as f64 / 1024.0 / 1024.0 / 1024.0 / 1024.0 / 1024.0)
+    }
+}
+
 pub struct MirraAddress {
     pub address: String,
     pub port: u16
