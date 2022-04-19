@@ -1,0 +1,6 @@
+/target
+Mirra.toml
+/test-node
+/test-root
+/.idea
+**/.DS_Store
