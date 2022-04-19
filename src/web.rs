@@ -74,7 +74,7 @@ fn make_list_page(entries: Vec<(String, String, bool)>, module: Option<String>, 
 
 async fn list_directory(path: PathBuf, module: String, host: Option<String>, config: Arc<Config>) -> Result<String> {
     let mut list = tokio::fs::read_dir(path).await?;
-    let mut entries = Vec::new();
+    let mut entries: Vec<(String, String, bool)> = [("..".to_string(), "-".to_string(), false)].into();
     loop {
         // Get next directory entry
         let entry = list.next_entry().await?;
@@ -87,8 +87,8 @@ async fn list_directory(path: PathBuf, module: String, host: Option<String>, con
                     name.push('/');
                 }
                 let metadata = entry.metadata().await;
-                entries.push((name, if let Ok(metadata) = metadata {
-                    format_size(metadata.len())
+                entries.push((name, if !is_dir && metadata.is_ok() {
+                    format_size(metadata.unwrap().len())
                 } else {
                     "-".to_string()
                 }, !is_dir));
